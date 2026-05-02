@@ -1,0 +1,403 @@
+<!doctype html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Golf Tracker</title>
+    <style>
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #f5f6f8;
+        margin: 0;
+        padding: 16px;
+        color: #222;
+      }
+
+      .card {
+        background: white;
+        padding: 16px;
+        border-radius: 14px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+        margin-bottom: 16px;
+      }
+
+      button {
+        width: 100%;
+        padding: 14px;
+        margin-top: 10px;
+        border: none;
+        border-radius: 10px;
+        background: #2d6cdf;
+        color: white;
+        font-weight: 700;
+        font-size: 16px;
+      }
+
+      button:disabled {
+        background: #aaa;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        padding: 12px;
+        margin-top: 10px;
+        border-radius: 8px;
+        border: 1px solid #ccc;
+        box-sizing: border-box;
+        font-size: 16px;
+        font-family: inherit;
+      }
+
+      label {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 12px;
+      }
+
+      canvas {
+        width: 100%;
+        height: auto;
+        margin-top: 10px;
+      }
+
+      .stat-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-bottom: 1px solid #eee;
+      }
+
+      .round-card,
+      .note-item {
+        background: #f5f6f8;
+        padding: 12px;
+        border-radius: 10px;
+        margin-top: 8px;
+      }
+
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Golf Tracker</h1>
+
+    <div id="menu" class="card">
+      <h2>Choose Round Type</h2>
+      <button onclick="startRound(9)">9 Holes</button>
+      <button onclick="startRound(18)">18 Holes</button>
+      <button onclick="showStats()">View Stats</button>
+    </div>
+
+    <div id="tracker" class="card hidden">
+      <h2 id="holeDisplay">Hole 1</h2>
+
+      <input id="score" type="number" placeholder="Score" />
+
+      <label>
+        <input id="fairway" type="checkbox" />
+        Fairway Hit
+      </label>
+
+      <label>
+        <input id="gir" type="checkbox" />
+        GIR
+      </label>
+
+      <input id="putts" type="number" placeholder="Putts" />
+
+      <textarea
+        id="note"
+        rows="3"
+        placeholder="Note for this hole..."></textarea>
+
+      <button id="saveBtn" onclick="saveHole()">Save Hole</button>
+      <button onclick="undoHole()">Undo Last Hole</button>
+      <button onclick="finishRound()">Finish Round</button>
+    </div>
+
+    <div id="stats" class="hidden">
+      <div class="card">
+        <button onclick="showMenu()">Back</button>
+        <h2 id="summaryTitle">Stats</h2>
+
+        <div class="stat-row">
+          <span>Total Strokes</span><strong id="totalStrokes">-</strong>
+        </div>
+        <div class="stat-row">
+          <span>Fairways Hit</span><strong id="totalFairways">-</strong>
+        </div>
+        <div class="stat-row">
+          <span>GIR</span><strong id="totalGir">-</strong>
+        </div>
+        <div class="stat-row">
+          <span>Total Putts</span><strong id="totalPutts">-</strong>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Scoring by Hole</h2>
+        <canvas id="scoreChart" width="800" height="260"></canvas>
+      </div>
+
+      <div class="card">
+        <h2>Previous Rounds</h2>
+        <div id="roundList"></div>
+      </div>
+
+      <div class="card">
+        <h2>Hole Notes</h2>
+        <div id="notesList"></div>
+      </div>
+    </div>
+
+    <script>
+      let round = JSON.parse(localStorage.getItem('round')) || [];
+      let history = JSON.parse(localStorage.getItem('history')) || [];
+      let roundLimit = Number(localStorage.getItem('roundLimit')) || null;
+
+      const menu = document.getElementById('menu');
+      const tracker = document.getElementById('tracker');
+      const stats = document.getElementById('stats');
+
+      function saveState() {
+        localStorage.setItem('round', JSON.stringify(round));
+        localStorage.setItem('history', JSON.stringify(history));
+
+        if (roundLimit) localStorage.setItem('roundLimit', roundLimit);
+        else localStorage.removeItem('roundLimit');
+      }
+
+      function startRound(limit) {
+        round = [];
+        roundLimit = limit;
+        saveState();
+        showTracker();
+        updateTracker();
+      }
+
+      function showMenu() {
+        menu.classList.remove('hidden');
+        tracker.classList.add('hidden');
+        stats.classList.add('hidden');
+      }
+
+      function showTracker() {
+        menu.classList.add('hidden');
+        tracker.classList.remove('hidden');
+        stats.classList.add('hidden');
+        updateTracker();
+      }
+
+      function showStats(
+        selectedRound = null,
+        title = 'Current / Latest Round',
+      ) {
+        menu.classList.add('hidden');
+        tracker.classList.add('hidden');
+        stats.classList.remove('hidden');
+
+        const holes =
+          selectedRound || (round.length > 0 ? round : history.at(-1)?.holes);
+
+        renderRoundList();
+
+        if (!holes) {
+          document.getElementById('summaryTitle').textContent = 'No data yet';
+          return;
+        }
+
+        renderStats(holes, title);
+      }
+
+      function updateTracker() {
+        const holeDisplay = document.getElementById('holeDisplay');
+        const saveBtn = document.getElementById('saveBtn');
+
+        if (!roundLimit) {
+          showMenu();
+          return;
+        }
+
+        if (round.length >= roundLimit) {
+          holeDisplay.textContent = 'Round Complete';
+          saveBtn.disabled = true;
+          saveBtn.textContent = 'Round Complete';
+        } else {
+          holeDisplay.textContent = `Hole ${round.length + 1}`;
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save Hole';
+        }
+      }
+
+      function clearInputs() {
+        document.getElementById('score').value = '';
+        document.getElementById('fairway').checked = false;
+        document.getElementById('gir').checked = false;
+        document.getElementById('putts').value = '';
+        document.getElementById('note').value = '';
+      }
+
+      function saveHole() {
+        const score = document.getElementById('score').value;
+        const putts = document.getElementById('putts').value;
+
+        if (score === '' || putts === '') {
+          alert('Enter both score and putts before saving.');
+          return;
+        }
+
+        if (round.length >= roundLimit) return;
+
+        round.push({
+          hole: round.length + 1,
+          score: Number(score),
+          fairway: document.getElementById('fairway').checked,
+          gir: document.getElementById('gir').checked,
+          putts: Number(putts),
+          note: document.getElementById('note').value.trim(),
+        });
+
+        saveState();
+        clearInputs();
+        updateTracker();
+      }
+
+      function undoHole() {
+        if (round.length === 0) return;
+        round.pop();
+        saveState();
+        clearInputs();
+        updateTracker();
+      }
+
+      function finishRound() {
+        if (round.length === 0) return;
+
+        const totalScore = round.reduce((sum, h) => sum + h.score, 0);
+        const fairways = round.filter((h) => h.fairway).length;
+        const gir = round.filter((h) => h.gir).length;
+        const putts = round.reduce((sum, h) => sum + h.putts, 0);
+
+        history.push({
+          score: totalScore,
+          fairways,
+          gir,
+          putts,
+          holes: round,
+          roundType: roundLimit,
+          date: new Date().toISOString(),
+        });
+
+        round = [];
+        roundLimit = null;
+        saveState();
+        clearInputs();
+        showMenu();
+      }
+
+      function renderStats(holes, title) {
+        document.getElementById('summaryTitle').textContent = title;
+
+        const totalScore = holes.reduce((sum, h) => sum + h.score, 0);
+        const fairways = holes.filter((h) => h.fairway).length;
+        const gir = holes.filter((h) => h.gir).length;
+        const putts = holes.reduce((sum, h) => sum + h.putts, 0);
+
+        document.getElementById('totalStrokes').textContent = totalScore;
+        document.getElementById('totalFairways').textContent =
+          `${fairways} / ${holes.length}`;
+        document.getElementById('totalGir').textContent =
+          `${gir} / ${holes.length}`;
+        document.getElementById('totalPutts').textContent = putts;
+
+        drawScoreChart(holes);
+        renderNotes(holes);
+      }
+
+      function drawScoreChart(holes) {
+        const canvas = document.getElementById('scoreChart');
+        const ctx = canvas.getContext('2d');
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const padding = 45;
+        const chartWidth = canvas.width - padding * 2;
+        const chartHeight = canvas.height - padding * 2;
+        const maxScore = Math.max(...holes.map((h) => h.score), 1);
+
+        const gap = 8;
+        const barWidth = chartWidth / holes.length - gap;
+
+        holes.forEach((hole, index) => {
+          const x = padding + index * (barWidth + gap);
+          const barHeight = (hole.score / maxScore) * chartHeight;
+          const y = padding + chartHeight - barHeight;
+
+          ctx.fillStyle = '#2d6cdf';
+          ctx.fillRect(x, y, barWidth, barHeight);
+
+          ctx.fillStyle = '#111';
+          ctx.font = '12px Arial';
+          ctx.fillText(hole.score, x + barWidth / 2 - 4, y - 8);
+
+          ctx.fillStyle = '#666';
+          ctx.fillText(index + 1, x + barWidth / 2 - 4, canvas.height - 15);
+        });
+      }
+
+      function renderRoundList() {
+        const list = document.getElementById('roundList');
+        list.innerHTML = '';
+
+        if (history.length === 0) {
+          list.innerHTML = '<p>No previous rounds yet.</p>';
+          return;
+        }
+
+        [...history].reverse().forEach((roundItem) => {
+          const div = document.createElement('div');
+          div.className = 'round-card';
+
+          const date = new Date(roundItem.date).toLocaleDateString('en-GB');
+
+          div.textContent = `${date} - ${roundItem.roundType} holes - Score ${roundItem.score}`;
+
+          div.onclick = () => {
+            showStats(
+              roundItem.holes,
+              `${date} - ${roundItem.roundType} holes`,
+            );
+          };
+
+          list.appendChild(div);
+        });
+      }
+
+      function renderNotes(holes) {
+        const notesList = document.getElementById('notesList');
+        notesList.innerHTML = '';
+
+        const notes = holes.filter((h) => h.note);
+
+        if (notes.length === 0) {
+          notesList.innerHTML = '<p>No notes for this round.</p>';
+          return;
+        }
+
+        notes.forEach((hole) => {
+          const div = document.createElement('div');
+          div.className = 'note-item';
+          div.innerHTML = `<strong>Hole ${hole.hole}</strong><br>${hole.note}`;
+          notesList.appendChild(div);
+        });
+      }
+
+      if (roundLimit) showTracker();
+      else showMenu();
+    </script>
+  </body>
+</html>
