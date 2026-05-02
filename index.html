@@ -329,8 +329,8 @@
         const chartHeight = canvas.height - padding * 2;
         const maxScore = Math.max(...holes.map((h) => h.score), 1);
 
-        const gap = 8;
-        const barWidth = chartWidth / holes.length - gap;
+        const gap = 4;
+        const barWidth = Math.max(8, (chartWidth / holes.length) - gap);
 
         holes.forEach((hole, index) => {
           const x = padding + index * (barWidth + gap);
